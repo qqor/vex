@@ -1092,7 +1092,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
 
 	UInt  cins, op, imm, rx, ry, rz, sa, sel, jal_x, target, 
          shift_f, rri_a_f, i8_funct, svrs_s, r32, rrr_f, rr_funct,
-         svrs_ra, svrs_s0, svrs_s1, svrs_framesize, svrs_aregs, svrs_xregs,
+         svrs_ra, svrs_s0, svrs_s1, svrs_framesize, svrs_aregs, svrs_xsregs,
          svrs_args, svrs_astatic;
 	UInt extended;
    UInt cins_t;
@@ -1426,7 +1426,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                   svrs_framesize = (svrs_framesize << 4) | ((cins & 0xF) >> 0);
                   
                   svrs_aregs = (cins & 0x000F0000) >> 16;
-                  svrs_xregs = (cins & 0x07000000) >> 24;
+                  svrs_xsregs = (cins & 0x07000000) >> 24;
 
                   switch (svrs_aregs) {
                      case 0b0000:
@@ -1491,7 +1491,125 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                }
                switch (svrs_s) {
                   case 0: /* RESTORE */
-                     
+                     UInt stack_cnt = 0;
+                     // Adjust stack with framesize.
+                     t0 = newTemp(Ity_I32);
+                     if (extended) {
+                        assign(t0, binop(Iop_Add32, getIReg(29), mkU32(svrs_framesize << 3)));
+                     } else {
+                        if (svrs_framesize == 0) {
+                           assign(t0, binop(Iop_Add32, getIReg(29), mkU32(128)));
+                        } else {
+                           assign(t0, binop(Iop_Add32, getIReg(29), mkU32(svrs_framesize << 3)));
+                        }
+                     }
+                     putIReg(29, mkexpr(t0));
+                     // Restore ra
+                     if (svrs_ra) {
+                        // Restore GPR[31]
+                        stack_cnt += 1;
+                        t1 = newTemp(Ity_I32);
+                        assign(t1, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                        putIReg(31, load(Ity_I32, mkexpr(t1)));
+                     }
+                     // Restore registers GPR[18-23,30]
+                     if (extended) {
+                        if (svrs_xsregs > 0) {
+                           if (svrs_xsregs > 1) {
+                              if (svrs_xsregs > 2) {
+                                 if (svrs_xsregs > 3) {
+                                    if (svrs_xsregs > 4) {
+                                       if (svrs_xsregs > 5) {
+                                          if (svrs_xsregs > 6) {
+                                             // Restore GPR[30]
+                                             stack_cnt += 1;
+                                             t2 = newTemp(Ity_I32);
+                                             assign(t2, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                             putIReg(30, load(Ity_I32, mkexpr(t2)));
+                                          }
+                                          // Restore GPR[23]
+                                          stack_cnt += 1;
+                                          t3 = newTemp(Ity_I32);
+                                          assign(t3, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                          putIReg(23, load(Ity_I32, mkexpr(t3)));
+                                       }
+                                       // Restore GPR[22]
+                                       stack_cnt += 1;
+                                       t4 = newTemp(Ity_I32);
+                                       assign(t4, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                       putIReg(22, load(Ity_I32, mkexpr(t4)));
+                                    }
+                                    // Restore GPR[21]
+                                    stack_cnt += 1;
+                                    t5 = newTemp(Ity_I32);
+                                    assign(t5, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                    putIReg(21, load(Ity_I32, mkexpr(t5)));
+                                 }
+                                 // Restore GPR[20]
+                                 stack_cnt += 1;
+                                 t6 = newTemp(Ity_I32);
+                                 assign(t6, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                 putIReg(20, load(Ity_I32, mkexpr(t6)));
+                              }
+                              // Restore GPR[19]
+                              stack_cnt += 1;
+                              t7 = newTemp(Ity_I32);
+                              assign(t7, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                              putIReg(19, load(Ity_I32, mkexpr(t7)));
+                           }
+                           // Restore GPR[18]
+                           stack_cnt += 1;
+                           t8 = newTemp(Ity_I32);
+                           assign(t8, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                           putIReg(18, load(Ity_I32, mkexpr(t8)));
+                        }
+                     }
+                     // Restore s0, s1
+                     if (svrs_s1) {
+                        // Restore GPR[17]
+                        stack_cnt += 1;
+                        t9 = newTemp(Ity_I32);
+                        assign(t9, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                        putIReg(17, load(Ity_I32, mkexpr(t9)));
+                     }
+                     if (svrs_s0) {
+                        // Restore GPR[16]
+                        stack_cnt += 1;
+                        t10 = newTemp(Ity_I32);
+                        assign(t10, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                        putIReg(16, load(Ity_I32, mkexpr(t10)));
+                     }
+                     // Restore GPR[4-7]
+                     if (extended) {
+                        if (svrs_astatic > 0) {
+                           // Restore GRP[7]
+                           stack_cnt += 1;
+                           t11 = newTemp(Ity_I32);
+                           assign(t11, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                           putIReg(7, load(Ity_I32, mkexpr(t14)));
+                           if (svrs_astatic > 1) {
+                              // Restore GPR[6]
+                              stack_cnt += 1;
+                              t12 = newTemp(Ity_I32);
+                              assign(t12, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                              putIReg(6, load(Ity_I32, mkexpr(t12)));
+                              if (svrs_astatic > 2) {
+                                 // Restore GPR[5]
+                                 stack_cnt += 1;
+                                 t13 = newTemp(Ity_I32);
+                                 assign(t13, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                 putIReg(5, load(Ity_I32, mkexpr(t13)));
+                                 if (svrs_astatic > 3) {
+                                    // Restore GPR[4]
+                                    stack_cnt += 1;
+                                    t14 = newTemp(Ity_I32);
+                                    assign(t14, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                    putIReg(4, load(Ity_I32, mkexpr(t14)));
+                                 }
+                              }
+                           }
+                        }
+                     }
                      break;
                   
                   case 1: /* SAVE */
@@ -1534,13 +1652,13 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                      }
                      // Save registers GPR[18-23,30]
                      if (extended) {
-                        if (svrs_xregs > 0) {
-                           if (svrs_xregs > 1) {
-                              if (svrs_xregs > 2) {
-                                 if (svrs_xregs > 3) {
-                                    if (svrs_xregs > 4) {
-                                       if (svrs_xregs > 5) {
-                                          if (svrs_xregs > 6) {
+                        if (svrs_xsregs > 0) {
+                           if (svrs_xsregs > 1) {
+                              if (svrs_xsregs > 2) {
+                                 if (svrs_xsregs > 3) {
+                                    if (svrs_xsregs > 4) {
+                                       if (svrs_xsregs > 5) {
+                                          if (svrs_xsregs > 6) {
                                              // Store GPR[30]
                                              stack_cnt += 1;
                                              t5 = newTemp(Ity_I32);
