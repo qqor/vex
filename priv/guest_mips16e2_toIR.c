@@ -1083,13 +1083,14 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                                      const VexAbiInfo*  abiinfo,
                                      Bool         sigill_diag )
 {
-   IRTemp t0, t1 = 0, t2, t3, t4, t5, t6, t7;
+   IRTemp   t0, t1 = 0, t2, t3, t4, t5, t6, t7, t8, t9,
+            t10, t11, t12, t13, t14, t15, t16, t17, t18, t19;
 
    //UInt opcode, cins, rs, rt, rd, sa, ft, fs, fd, fmt, tf, nd, function,
    //     trap_code, imm, instr_index, p, msb, lsb, size, rot, sel;
 	UInt rs, rt, rd;
 
-	UInt cins, op, imm, rx, ry, rz, sa, sel, jal_x, target, 
+	UInt  cins, op, imm, rx, ry, rz, sa, sel, jal_x, target, 
          shift_f, rri_a_f, i8_funct, svrs_s, r32, rrr_f, rr_funct,
          svrs_ra, svrs_s0, svrs_s1, svrs_framesize, svrs_aregs, svrs_xregs,
          svrs_args, svrs_astatic;
@@ -1494,6 +1495,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                      break;
                   
                   case 1: /* SAVE */
+                     UInt stack_cnt = 0;
                      // Save GPR[29] in temp
                      t0 = newTemp(Ity_I32);
                      assign(t0, getIReg(REG_SP));
@@ -1506,17 +1508,17 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                               // Store GPR[5]
                               t1 = newTemp(Ity_I32);
                               assign(t1, binop(Iop_Add32, mkexpr(t0), mkU32(4)));
-                              store(mkexpr(t0), getIReg(5));
+                              store(mkexpr(t1), getIReg(5));
                               if (svrs_args > 2) {
                                  // Store GPR[6]
-                                 t1 = newTemp(Ity_I32);
-                                 assign(t1, binop(Iop_Add32, mkexpr(t0), mkU32(8)));
-                                 store(mkexpr(t0), getIReg(6));
+                                 t2 = newTemp(Ity_I32);
+                                 assign(t2, binop(Iop_Add32, mkexpr(t0), mkU32(8)));
+                                 store(mkexpr(t2), getIReg(6));
                                  if (svrs_args > 3) {
                                     // Store GPR[7]
-                                    t1 = newTemp(Ity_I32);
-                                    assign(t1, binop(Iop_Add32, mkexpr(t0), mkU32(12)));
-                                    store(mkexpr(t0), getIReg(7));
+                                    t3 = newTemp(Ity_I32);
+                                    assign(t3, binop(Iop_Add32, mkexpr(t0), mkU32(12)));
+                                    store(mkexpr(t2), getIReg(7));
                                  }
                               }
                            }
@@ -1525,8 +1527,10 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                      // Save ra
                      if (svrs_ra) {
                         // Store GPR[31]
-                        t2 = newTemp(Ity_I32);
-                        assign(t2, binop(Iop_Sub32, mkexpr(t0), mkU32(4)));
+                        stack_cnt += 1;
+                        t4 = newTemp(Ity_I32);
+                        assign(t4, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                        store(mkexpr(t4), getIReg(31));
                      }
                      // Save registers GPR[18-23,30]
                      if (extended) {
@@ -1538,43 +1542,104 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                                        if (svrs_xregs > 5) {
                                           if (svrs_xregs > 6) {
                                              // Store GPR[30]
+                                             stack_cnt += 1;
+                                             t5 = newTemp(Ity_I32);
+                                             assign(t5, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                             store(mkexpr(t5), getIReg(30));
                                           }
                                           // Store GPR[23]
+                                          stack_cnt += 1;
+                                          t6 = newTemp(Ity_I32);
+                                          assign(t6, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                          store(mkexpr(t6), getIReg(23));
                                        }
                                        // Store GPR[22]
+                                       stack_cnt += 1;
+                                       t7 = newTemp(Ity_I32);
+                                       assign(t7, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                       store(mkexpr(t7), getIReg(22));
                                     }
                                     // Store GPR[21]
+                                    stack_cnt += 1;
+                                    t8 = newTemp(Ity_I32);
+                                    assign(t8, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                    store(mkexpr(t8), getIReg(21));
                                  }
                                  // Store GPR[20]
+                                 stack_cnt += 1;
+                                 t9 = newTemp(Ity_I32);
+                                 assign(t9, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                 store(mkexpr(t9), getIReg(20));
                               }
                               // Store GPR[19]
+                              stack_cnt += 1;
+                              t10 = newTemp(Ity_I32);
+                              assign(t10, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                              store(mkexpr(t10), getIReg(19));
                            }
                            // Store GPR[18]
+                           stack_cnt += 1;
+                           t11 = newTemp(Ity_I32);
+                           assign(t11, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                           store(mkexpr(t11), getIReg(18));
                         }
                      }
                      // Save s0, s1
                      if (svrs_s1) {
                         // Store GPR[17]
+                        stack_cnt += 1;
+                        t12 = newTemp(Ity_I32);
+                        assign(t12, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                        store(mkexpr(t12), getIReg(17));
                      }
                      if (svrs_s0) {
                         // Store GPR[16]
+                        stack_cnt += 1;
+                        t13 = newTemp(Ity_I32);
+                        assign(t13, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                        store(mkexpr(t13), getIReg(16));
                      }
                      // Save GPR[4-7]
                      if (extended) {
                         if (svrs_astatic > 0) {
                            // Store GRP[7]
+                           stack_cnt += 1;
+                           t14 = newTemp(Ity_I32);
+                           assign(t14, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                           store(mkexpr(t14), getIReg(7));
                            if (svrs_astatic > 1) {
                               // Store GPR[6]
+                              stack_cnt += 1;
+                              t15 = newTemp(Ity_I32);
+                              assign(t15, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                              store(mkexpr(t15), getIReg(6));
                               if (svrs_astatic > 2) {
                                  // Store GPR[5]
+                                 stack_cnt += 1;
+                                 t16 = newTemp(Ity_I32);
+                                 assign(t16, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                 store(mkexpr(t16), getIReg(5));
                                  if (svrs_astatic > 3) {
                                     // Store GPR[4]
+                                    stack_cnt += 1;
+                                    t17 = newTemp(Ity_I32);
+                                    assign(t17, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
+                                    store(mkexpr(t17), getIReg(4));
                                  }
                               }
                            }
                         }
                      }
-                     // Adjust stack
+                     // Adjust stack with framesize.
+                     if (extended) {
+                        putIReg(29, binop(Iop_Sub32, getIReg(29), mkU32(svrs_framesize << 3)));
+                     } else {
+                        if (svrs_framesize == 0) {
+                           putIReg(29, binop(Iop_Sub32, getIReg(29), mkU32(128)));
+                        } else {
+                           putIReg(29, binop(Iop_Sub32, getIReg(29), mkU32(svrs_framesize << 3)));
+                        }
+                     }
                      break;
 
                   default:
