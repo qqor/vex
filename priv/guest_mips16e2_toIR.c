@@ -1090,7 +1090,9 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
 	UInt rs, rt, rd;
 
 	UInt cins, op, imm, rx, ry, rz, sa, sel, jal_x, target, 
-         shift_f, rri_a_f, i8_funct, svrs_s, r32, rrr_f, rr_funct;
+         shift_f, rri_a_f, i8_funct, svrs_s, r32, rrr_f, rr_funct,
+         svrs_ra, svrs_s0, svrs_s1, svrs_framesize, svrs_aregs, svrs_xregs,
+         svrs_args, svrs_astatic;
 	UInt extended;
    UInt cins_t;
    UInt ISA_Mode;
@@ -1413,19 +1415,166 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                break;
 
             case 0b100: /* SVRS */
-               // why so complicateddddddddddddd;;;;;;;;
-               svrs_s = (cins & 0x80) >> 7;
+               svrs_s  = (cins & 0x80) >> 7;
+               svrs_ra = (cins & 0x40) >> 6;
+               svrs_s0 = (cins & 0x20) >> 5;
+               svrs_s1 = (cins & 0x10) >> 4;
+               if (extended) {
+                  svrs_framesize = 0;
+                  svrs_framesize = svrs_framesize | (cins & 0x00F00000) >> 20;
+                  svrs_framesize = (svrs_framesize << 4) | ((cins & 0xF) >> 0);
+                  
+                  svrs_aregs = (cins & 0x000F0000) >> 16;
+                  svrs_xregs = (cins & 0x07000000) >> 24;
+
+                  switch (svrs_aregs) {
+                     case 0b0000:
+                     case 0b0001:
+                     case 0b0010:
+                     case 0b0011:
+                     case 0b1011:
+                        svrs_args = 0;                        
+                        break;
+                     case 0b0100:
+                     case 0b0101:
+                     case 0b0110:
+                     case 0b0111:
+                        svrs_args = 1;
+                        break;
+                     case 0b1000:
+                     case 0b1001:
+                     case 0b1010:
+                        svrs_args = 2;
+                        break;
+                     case 0b1100:
+                     case 0b1101:
+                        svrs_args = 3;
+                        break;
+                     case 0b1110:
+                        svrs_args = 4;
+                     default:
+                        goto decode_failure;
+                  }
+
+                  switch (svrs_aregs) {
+                     case 0b0000:
+                     case 0b0100:
+                     case 0b1000:
+                     case 0b1100:
+                     case 0b1110:
+                        svrs_astatic = 0;                        
+                        break;
+                     case 0b0001:
+                     case 0b0101:
+                     case 0b1001:
+                     case 0b1101:
+                        svrs_astatic = 1;
+                        break;
+                     case 0b0010:
+                     case 0b0110:
+                     case 0b1010:
+                        svrs_astatic = 2;
+                        break;
+                     case 0b0011:
+                     case 0b0111:
+                        svrs_astatic = 3;
+                        break;
+                     case 0b1011:
+                        svrs_astatic = 4;
+                     default:
+                        goto decode_failure;
+                  }
+
+               } else {
+                  svrs_framesize = (cins & 0xF) >> 0;
+               }
                switch (svrs_s) {
                   case 0: /* RESTORE */
                      
                      break;
                   
                   case 1: /* SAVE */
-                     if (extended) { 
-
-                     } else {
-                        
+                     // Save GPR[29] in temp
+                     t0 = newTemp(Ity_I32);
+                     assign(t0, getIReg(REG_SP));
+                     // Save registers GPR[4-7]
+                     if (extended) {
+                        if (svrs_args > 0) {
+                           // Store GRP[4]
+                           store(mkexpr(t0), getIReg(4));
+                           if (svrs_args > 1) {
+                              // Store GPR[5]
+                              t1 = newTemp(Ity_I32);
+                              assign(t1, binop(Iop_Add32, mkexpr(t0), mkU32(4)));
+                              store(mkexpr(t0), getIReg(5));
+                              if (svrs_args > 2) {
+                                 // Store GPR[6]
+                                 t1 = newTemp(Ity_I32);
+                                 assign(t1, binop(Iop_Add32, mkexpr(t0), mkU32(8)));
+                                 store(mkexpr(t0), getIReg(6));
+                                 if (svrs_args > 3) {
+                                    // Store GPR[7]
+                                    t1 = newTemp(Ity_I32);
+                                    assign(t1, binop(Iop_Add32, mkexpr(t0), mkU32(12)));
+                                    store(mkexpr(t0), getIReg(7));
+                                 }
+                              }
+                           }
+                        }
                      }
+                     // Save ra
+                     if (svrs_ra) {
+                        // Store GPR[31]
+                        t2 = newTemp(Ity_I32);
+                        assign(t2, binop(Iop_Sub32, mkexpr(t0), mkU32(4)));
+                     }
+                     // Save registers GPR[18-23,30]
+                     if (extended) {
+                        if (svrs_xregs > 0) {
+                           if (svrs_xregs > 1) {
+                              if (svrs_xregs > 2) {
+                                 if (svrs_xregs > 3) {
+                                    if (svrs_xregs > 4) {
+                                       if (svrs_xregs > 5) {
+                                          if (svrs_xregs > 6) {
+                                             // Store GPR[30]
+                                          }
+                                          // Store GPR[23]
+                                       }
+                                       // Store GPR[22]
+                                    }
+                                    // Store GPR[21]
+                                 }
+                                 // Store GPR[20]
+                              }
+                              // Store GPR[19]
+                           }
+                           // Store GPR[18]
+                        }
+                     }
+                     // Save s0, s1
+                     if (svrs_s1) {
+                        // Store GPR[17]
+                     }
+                     if (svrs_s0) {
+                        // Store GPR[16]
+                     }
+                     // Save GPR[4-7]
+                     if (extended) {
+                        if (svrs_astatic > 0) {
+                           // Store GRP[7]
+                           if (svrs_astatic > 1) {
+                              // Store GPR[6]
+                              if (svrs_astatic > 2) {
+                                 // Store GPR[5]
+                                 if (svrs_astatic > 3) {
+                                    // Store GPR[4]
+                                 }
+                              }
+                           }
+                        }
+                     }
+                     // Adjust stack
                      break;
 
                   default:
