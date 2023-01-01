@@ -669,97 +669,6 @@ static IRExpr *getByteFromReg(UInt reg, UInt byte_pos)
                                    mkU32(0xFF)));
 }
 
-static void putFCSR(IRExpr * e)
-{
-   stmt(IRStmt_Put(offsetof(VexGuestMIPS32State, guest_FCSR), e));
-}
-
-/* fs   - fpu source register number.
-   inst - fpu instruction that needs to be executed.
-   sz32 - size of source register.
-   opN  - number of operads:
-          1 - unary operation.
-          2 - binary operation. */
-static void calculateFCSR(UInt fs, UInt ft, UInt inst, Bool sz32, UInt opN)
-{
-   IRDirty *d;
-   IRTemp fcsr = newTemp(Ity_I32);
-   /* IRExpr_GSPTR() => Need to pass pointer to guest state to helper. */
-   if (fp_mode64)
-      d = unsafeIRDirty_1_N(fcsr, 0,
-                            "mips_dirtyhelper_calculate_FCSR_fp64",
-                            &mips_dirtyhelper_calculate_FCSR_fp64,
-                            mkIRExprVec_4(IRExpr_GSPTR(),
-                                          mkU32(fs),
-                                          mkU32(ft),
-                                          mkU32(inst)));
-   else
-      d = unsafeIRDirty_1_N(fcsr, 0,
-                            "mips_dirtyhelper_calculate_FCSR_fp32",
-                            &mips_dirtyhelper_calculate_FCSR_fp32,
-                            mkIRExprVec_4(IRExpr_GSPTR(),
-                                          mkU32(fs),
-                                          mkU32(ft),
-                                          mkU32(inst)));
-
-   if (opN == 1) {  /* Unary operation. */
-      /* Declare we're reading guest state. */
-      if (sz32 || fp_mode64)
-         d->nFxState = 2;
-      else
-         d->nFxState = 3;
-      vex_bzero(&d->fxState, sizeof(d->fxState));
-
-      d->fxState[0].fx     = Ifx_Read;  /* read */
-      d->fxState[0].offset = offsetof(VexGuestMIPS32State, guest_FCSR);
-      d->fxState[0].size   = sizeof(UInt);
-      d->fxState[1].fx     = Ifx_Read;  /* read */
-      d->fxState[1].offset = floatGuestRegOffset(fs);
-      d->fxState[1].size   = sizeof(ULong);
-
-      if (!(sz32 || fp_mode64)) {
-         d->fxState[2].fx     = Ifx_Read;  /* read */
-         d->fxState[2].offset = floatGuestRegOffset(fs+1);
-         d->fxState[2].size   = sizeof(ULong);
-      }
-   } else if (opN == 2) {  /* Binary operation. */
-      /* Declare we're reading guest state. */
-      if (sz32 || fp_mode64)
-         d->nFxState = 3;
-      else
-         d->nFxState = 5;
-      vex_bzero(&d->fxState, sizeof(d->fxState));
-
-      d->fxState[0].fx     = Ifx_Read;  /* read */
-      d->fxState[0].offset = offsetof(VexGuestMIPS32State, guest_FCSR);
-      d->fxState[0].size   = sizeof(UInt);
-      d->fxState[1].fx     = Ifx_Read;  /* read */
-      d->fxState[1].offset = floatGuestRegOffset(fs);
-      d->fxState[1].size   = sizeof(ULong);
-      d->fxState[2].fx     = Ifx_Read;  /* read */
-      d->fxState[2].offset = floatGuestRegOffset(ft);
-      d->fxState[2].size   = sizeof(ULong);
-
-      if (!(sz32 || fp_mode64)) {
-         d->fxState[3].fx     = Ifx_Read;  /* read */
-         d->fxState[3].offset = floatGuestRegOffset(fs+1);
-         d->fxState[3].size   = sizeof(ULong);
-         d->fxState[4].fx     = Ifx_Read;  /* read */
-         d->fxState[4].offset = floatGuestRegOffset(ft+1);
-         d->fxState[4].size   = sizeof(ULong);
-      }
-   }
-
-   stmt(IRStmt_Dirty(d));
-
-   putFCSR(mkexpr(fcsr));
-}
-
-static IRExpr *getULR(void)
-{
-   return IRExpr_Get(offsetof(VexGuestMIPS32State, guest_ULR), Ity_I32);
-}
-
 static void putIReg(UInt archreg, IRExpr * e)
 {
    IRType ty = mode64 ? Ity_I64 : Ity_I32;
@@ -797,38 +706,9 @@ static void putHI(IRExpr * e)
          binop(Iop_32HLto64, mkexpr(t_hi), mkexpr(t_lo))));
 }
 
-/* Put value to accumulator(helper function for MIPS32 DSP ASE instructions). */
-static void putAcc(UInt acNo, IRExpr * e)
-{
-   vassert(!mode64);
-   vassert(acNo <= 3);
-   vassert(typeOfIRExpr(irsb->tyenv, e) == Ity_I64);
-   stmt(IRStmt_Put(accumulatorGuestRegOffset(acNo), e));
-/* If acNo = 0, split value to HI and LO regs in order to maintain compatibility
-   between MIPS32 and MIPS DSP ASE insn sets. */
-   if (0 == acNo) {
-     putLO(unop(Iop_64to32, e));
-     putHI(unop(Iop_64HIto32, e));
-   }
-}
-
-static IRExpr *mkNarrowTo8 ( IRType ty, IRExpr * src )
-{
-   vassert(ty == Ity_I32 || ty == Ity_I64);
-   return ty == Ity_I64 ? unop(Iop_64to8, src) : unop(Iop_32to8, src);
-}
-
 static void putPC(IRExpr * e)
 {
    stmt(IRStmt_Put(OFFB_PC, e));
-}
-
-static IRExpr *mkWidenFrom32(IRType ty, IRExpr * src, Bool sined)
-{
-   vassert(ty == Ity_I32 || ty == Ity_I64);
-   if (ty == Ity_I32)
-      return src;
-   return (sined) ? unop(Iop_32Sto64, src) : unop(Iop_32Uto64, src);
 }
 
 /* Narrow 8/16/32 bit int expr to 8/16/32.  Clearly only some
@@ -854,63 +734,6 @@ static IRExpr *narrowTo(IRType dst_ty, IRExpr * e)
    return 0;
 }
 
-static IRExpr *getLoFromF64(IRType ty, IRExpr * src)
-{
-   vassert(ty == Ity_F32 || ty == Ity_F64);
-   if (ty == Ity_F64) {
-      IRTemp t0, t1;
-      t0 = newTemp(Ity_I64);
-      t1 = newTemp(Ity_I32);
-      assign(t0, unop(Iop_ReinterpF64asI64, src));
-      assign(t1, unop(Iop_64to32, mkexpr(t0)));
-      return unop(Iop_ReinterpI32asF32, mkexpr(t1));
-   } else
-      return src;
-}
-
-static IRExpr *mkWidenFromF32(IRType ty, IRExpr * src)
-{
-   vassert(ty == Ity_F32 || ty == Ity_F64);
-   if (ty == Ity_F64) {
-      IRTemp t0 = newTemp(Ity_I32);
-      IRTemp t1 = newTemp(Ity_I64);
-      assign(t0, unop(Iop_ReinterpF32asI32, src));
-      assign(t1, binop(Iop_32HLto64, mkU32(0x0), mkexpr(t0)));
-      return unop(Iop_ReinterpI64asF64, mkexpr(t1));
-   } else
-      return src;
-}
-
-static IRExpr *dis_branch_likely(IRExpr * guard, UInt imm)
-{
-   ULong branch_offset;
-   IRTemp t0;
-
-   /* PC = PC + (SignExtend(signed_immed_24) << 2)
-      An 18-bit signed offset (the 16-bit offset field shifted left 2 bits)
-      is added to the address of the instruction following
-      the branch (not the branch itself), in the branch delay slot, to form
-      a PC-relative effective target address. */
-   branch_offset = extend_s_18to32(imm << 2);
-
-   t0 = newTemp(Ity_I1);
-   assign(t0, guard);
-
-   if (mode64)
-      stmt(IRStmt_Exit(mkexpr(t0), Ijk_Boring,
-                       IRConst_U64(guest_PC_curr_instr + 8), OFFB_PC));
-   else
-      stmt(IRStmt_Exit(mkexpr(t0), Ijk_Boring,
-                       IRConst_U32(guest_PC_curr_instr + 8), OFFB_PC));
-
-   irsb->jumpkind = Ijk_Boring;
-
-   if (mode64)
-      return mkU64(guest_PC_curr_instr + 4 + branch_offset);
-   else
-      return mkU32(guest_PC_curr_instr + 4 + branch_offset);
-}
-
 static void dis_branch( Bool link, IRExpr * guard, UInt imm, IRStmt ** set,
                         UInt len )
 {
@@ -923,7 +746,6 @@ static void dis_branch( Bool link, IRExpr * guard, UInt imm, IRStmt ** set,
    }
 
    /* The imm must be handled prior calling this function. */
-
 	branch_offset = imm;
 
    t0 = newTemp(Ity_I1);
@@ -931,138 +753,6 @@ static void dis_branch( Bool link, IRExpr * guard, UInt imm, IRStmt ** set,
 	*set = IRStmt_Exit(mkexpr(t0), link ? Ijk_Call : Ijk_Boring,
 								IRConst_U32(guest_PC_curr_instr + len +
 												(UInt) branch_offset), OFFB_PC);
-}
-
-static IRExpr *getFReg(UInt fregNo)
-{
-   vassert(fregNo < 32);
-   IRType ty = fp_mode64 ? Ity_F64 : Ity_F32;
-   return IRExpr_Get(floatGuestRegOffset(fregNo), ty);
-}
-
-static IRExpr *getDReg(UInt dregNo)
-{
-   vassert(dregNo < 32);
-   if (fp_mode64) {
-      return IRExpr_Get(floatGuestRegOffset(dregNo), Ity_F64);
-   } else {
-      /* Read a floating point register pair and combine their contents into a
-         64-bit value */
-      IRTemp t0 = newTemp(Ity_F32);
-      IRTemp t1 = newTemp(Ity_F32);
-      IRTemp t2 = newTemp(Ity_F64);
-      IRTemp t3 = newTemp(Ity_I32);
-      IRTemp t4 = newTemp(Ity_I32);
-      IRTemp t5 = newTemp(Ity_I64);
-
-      assign(t0, getFReg(dregNo & (~1)));
-      assign(t1, getFReg(dregNo | 1));
-
-      assign(t3, unop(Iop_ReinterpF32asI32, mkexpr(t0)));
-      assign(t4, unop(Iop_ReinterpF32asI32, mkexpr(t1)));
-      assign(t5, binop(Iop_32HLto64, mkexpr(t4), mkexpr(t3)));
-      assign(t2, unop(Iop_ReinterpI64asF64, mkexpr(t5)));
-
-      return mkexpr(t2);
-   }
-}
-
-static void putFReg(UInt dregNo, IRExpr * e)
-{
-   vassert(dregNo < 32);
-   IRType ty = fp_mode64 ? Ity_F64 : Ity_F32;
-   vassert(typeOfIRExpr(irsb->tyenv, e) == ty);
-   stmt(IRStmt_Put(floatGuestRegOffset(dregNo), e));
-}
-
-static void putDReg(UInt dregNo, IRExpr * e)
-{
-   if (fp_mode64) {
-      vassert(dregNo < 32);
-      IRType ty = Ity_F64;
-      vassert(typeOfIRExpr(irsb->tyenv, e) == ty);
-      stmt(IRStmt_Put(floatGuestRegOffset(dregNo), e));
-   } else {
-      vassert(dregNo < 32);
-      vassert(typeOfIRExpr(irsb->tyenv, e) == Ity_F64);
-      IRTemp t1 = newTemp(Ity_F64);
-      IRTemp t4 = newTemp(Ity_I32);
-      IRTemp t5 = newTemp(Ity_I32);
-      IRTemp t6 = newTemp(Ity_I64);
-      assign(t1, e);
-      assign(t6, unop(Iop_ReinterpF64asI64, mkexpr(t1)));
-      assign(t4, unop(Iop_64HIto32, mkexpr(t6)));  /* hi */
-      assign(t5, unop(Iop_64to32, mkexpr(t6)));    /* lo */
-      putFReg(dregNo & (~1), unop(Iop_ReinterpI32asF32, mkexpr(t5)));
-      putFReg(dregNo | 1, unop(Iop_ReinterpI32asF32, mkexpr(t4)));
-   }
-}
-
-static void setFPUCondCode(IRExpr * e, UInt cc)
-{
-   if (cc == 0) {
-      putFCSR(binop(Iop_And32, getFCSR(), mkU32(0xFF7FFFFF)));
-      putFCSR(binop(Iop_Or32, getFCSR(), binop(Iop_Shl32, e, mkU8(23))));
-   } else {
-      putFCSR(binop(Iop_And32, getFCSR(), unop(Iop_Not32,
-                               binop(Iop_Shl32, mkU32(0x01000000), mkU8(cc)))));
-      putFCSR(binop(Iop_Or32, getFCSR(), binop(Iop_Shl32, e, mkU8(24 + cc))));
-   }
-}
-
-static IRExpr* get_IR_roundingmode ( void )
-{
-/*
-   rounding mode | MIPS | IR
-   ------------------------
-   to nearest    | 00  | 00
-   to zero       | 01  | 11
-   to +infinity  | 10  | 10
-   to -infinity  | 11  | 01
-*/
-   IRTemp rm_MIPS = newTemp(Ity_I32);
-   /* Last two bits in FCSR are rounding mode. */
-
-   assign(rm_MIPS, binop(Iop_And32, IRExpr_Get(offsetof(VexGuestMIPS32State,
-                                    guest_FCSR), Ity_I32), mkU32(3)));
-
-   /* rm_IR = XOR( rm_MIPS32, (rm_MIPS32 << 1) & 2) */
-
-   return binop(Iop_Xor32, mkexpr(rm_MIPS), binop(Iop_And32,
-                binop(Iop_Shl32, mkexpr(rm_MIPS), mkU8(1)), mkU32(2)));
-}
-
-/* sz, ULong -> IRExpr */
-static IRExpr *mkSzImm ( IRType ty, ULong imm64 )
-{
-   vassert(ty == Ity_I32 || ty == Ity_I64);
-   return ty == Ity_I64 ? mkU64(imm64) : mkU32((UInt) imm64);
-}
-
-static IRConst *mkSzConst ( IRType ty, ULong imm64 )
-{
-   vassert(ty == Ity_I32 || ty == Ity_I64);
-   return (ty == Ity_I64 ? IRConst_U64(imm64) : IRConst_U32((UInt) imm64));
-}
-
-/* Make sure we get valid 32 and 64bit addresses */
-static Addr64 mkSzAddr ( IRType ty, Addr64 addr )
-{
-   vassert(ty == Ity_I32 || ty == Ity_I64);
-   return (ty == Ity_I64 ? (Addr64) addr :
-                           (Addr64) extend_s_32to64(toUInt(addr)));
-}
-
-static IROp mkSzOp ( IRType ty, IROp op8 )
-{
-   Int adj;
-   vassert(ty == Ity_I8 || ty == Ity_I16 || ty == Ity_I32 || ty == Ity_I64);
-   vassert(op8 == Iop_Add8 || op8 == Iop_Sub8 || op8 == Iop_Mul8
-           || op8 == Iop_Or8 || op8 == Iop_And8 || op8 == Iop_Xor8
-           || op8 == Iop_Shl8 || op8 == Iop_Shr8 || op8 == Iop_Sar8
-           || op8 == Iop_CmpEQ8 || op8 == Iop_CmpNE8 || op8 == Iop_Not8);
-   adj = ty == Ity_I8 ? 0 : (ty == Ity_I16 ? 1 : (ty == Ity_I32 ? 2 : 3));
-   return adj + op8;
 }
 
 /*------------------------------------------------------------*/
