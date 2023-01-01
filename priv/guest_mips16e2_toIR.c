@@ -420,17 +420,106 @@ static UInt get_extended_sa(UInt mipsins){
 
 static Bool branch_or_jump(const UChar * addr)
 {
-	return True;
+   UInt cins = getUInt(addr);
+
+   UInt extended = is_extended(cins);
+
+	if (!extended){
+		cins  = cins >> 16;
+	}
+
+   UInt opcode = get_opcode(cins);
+   UInt rx = get_rx(cins);
+   UInt ry = get_ry(cins);
+
+   if (opcode == 0b00010){ /* B */
+      return True;
+   }
+
+   if (opcode == 0b00100){ /* BEQZ */
+      return True;
+   }
+   
+   if (opcode == 0b00101){ /* BNEZ */
+      return True;
+   }
+
+   if (opcode == 0b01100){
+      UInt i8_funct = get_i8_funct(cins);
+      if (i8_funct == 0b000){ /* BTEQZ */
+         return True;
+      }
+      if (i8_funct == 0b001){ /* BTNEZ */
+         return True;
+      }
+   }
+
+   if (opcode == 0b00011) /* JAL, JALX */
+      return True;
+
+   UInt rr_funct = (cins & 0x1F) >> 0;
+
+   if (opcode == 0b11101) {
+      UInt rr_funct = (cins & 0x1F) >> 0;
+      if (rr_funct == 0b00000) {
+         switch (ry) {
+            case 0b000:
+            case 0b001:
+            case 0b010:
+            case 0b100:
+            case 0b101:
+            case 0b110:
+               return True;
+            case 0b011:
+            case 0b111:
+            default:
+               break;
+         }
+      }
+   }
+
+	return False;
 }
 
 static Bool is_Branch_or_Jump_and_Link(const UChar * addr)
 {
-	return True;
+   UInt cins = getUInt(addr);
+
+   UInt extended = is_extended(cins);
+
+	if (!extended){
+		cins  = cins >> 16;
+	}
+
+   UInt opcode = get_opcode(cins);
+   UInt rx = get_rx(cins);
+   UInt ry = get_ry(cins);
+   UInt rr_funct = (cins & 0x1F) >> 0;
+
+   if (opcode == 0b11101) { /* RR */
+      if (rr_funct == 0b00000) {
+         if (ry == 0b010) /* JALR */
+            return True;
+         if (ry == 0b110) /* JALRC */
+            return True;
+      }
+   }
+
+   if (opcode == 0b00011) /* JAL, JALX */
+      return True;
+
+	return False;
 }
 
 static Bool is_Ret(const UChar * addr)
 {
    UInt cins = getUInt(addr);
+
+   UInt extended = is_extended(cins);
+
+	if (!extended){
+		cins  = cins >> 16;
+	}
 
    UInt opcode = get_opcode(cins);
    UInt rx = get_rx(cins);
