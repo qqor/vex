@@ -430,7 +430,23 @@ static Bool is_Branch_or_Jump_and_Link(const UChar * addr)
 
 static Bool is_Ret(const UChar * addr)
 {
-	return True;
+   UInt cins = getUInt(addr);
+
+   UInt opcode = get_opcode(cins);
+   UInt rx = get_rx(cins);
+   UInt ry = get_ry(cins);
+   UInt rr_funct = (cins & 0x1F) >> 0;
+
+   if (opcode = 0b11101) { /* RR */
+      if (rr_funct == 0b00000) {
+         if (ry == 0b001) /* JR ra */
+            return True;
+         if (ry == 0b101) /* JRC ra */
+            return True;
+      }
+   }
+
+	return False;
 }
 
 /*------------------------------------------------------------*/
