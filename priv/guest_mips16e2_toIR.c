@@ -433,11 +433,6 @@ static Bool is_Ret(const UChar * addr)
 	return True;
 }
 
-static Bool branch_or_link_likely(const UChar * addr)
-{
-	return True;
-}
-
 /*------------------------------------------------------------*/
 /*--- Helper bits and pieces for creating IR fragments.    ---*/
 /*------------------------------------------------------------*/
@@ -804,7 +799,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
    Int prev_dres_len = 0;
 
    /* Are we in a delay slot ? */
-   Bool delay_slot_branch, likely_delay_slot, delay_slot_jump;
+   Bool delay_slot_branch, delay_slot_jump;
 
    /* Is this compact instruction? */
    Bool compact;
@@ -819,7 +814,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
    dres.jk_StopHere = Ijk_INVALID;
    dres.hint        = Dis_HintNone;
 
-   delay_slot_branch = likely_delay_slot = delay_slot_jump = False;
+   delay_slot_branch = delay_slot_jump = False;
    compact = False;
 
    const UChar *code = guest_code + delta;
@@ -858,10 +853,6 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                delay_slot_branch = True;
             }
          }
-      }
-
-      if (branch_or_link_likely(guest_code + delta - prev_dres_len)) {
-         likely_delay_slot = True;
       }
    }
 
@@ -1898,13 +1889,6 @@ decode_failure:
           dres.jk_StopHere = is_Ret(guest_code + delta - prev_dres_len)?
                              Ijk_Ret : Ijk_Boring;
       }
-   }
-
-   if (likely_delay_slot) {
-      dres.jk_StopHere = Ijk_Boring;
-      dres.whatNext = Dis_StopHere;
-      putPC(lastn);
-      lastn = NULL;
    }
 
    if (delay_slot_jump) {
