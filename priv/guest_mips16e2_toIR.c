@@ -70,9 +70,6 @@ static IRSB *irsb;
    disInstr_MIPS below. */
 static Bool mode64 = False;
 
-/* CPU has FPU and 32 dbl. prec. FP registers. */
-static Bool fp_mode64 = False;
-
 #define OFFB_PC offsetof(VexGuestMIPS32State, guest_PC)
 
 /* Define 1.0 in single and double precision. */
@@ -322,22 +319,6 @@ static inline UInt getUInt(const UChar * p)
 #define ALUI_PATTERN(op) \
    putIReg(rt, binop(op, getIReg(rs), mkU32(imm)));
 
-#define ALUI_PATTERN64(op) \
-   putIReg(rt, binop(op, getIReg(rs), mkU64(imm)));
-
-#define ALU_PATTERN64(op) \
-   putIReg(rd, mkWidenFrom32(ty, binop(op, \
-                             mkNarrowTo32(ty, getIReg(rs)), \
-                             mkNarrowTo32(ty, getIReg(rt))), True));
-
-#define FP_CONDITIONAL_CODE \
-   t3 = newTemp(Ity_I32);   \
-   assign(t3, binop(Iop_And32, \
-                 IRExpr_ITE( binop(Iop_CmpEQ32, mkU32(cc), mkU32(0)), \
-                             binop(Iop_Shr32, getFCSR(), mkU8(23)), \
-                             binop(Iop_Shr32, getFCSR(), mkU8(24+cc))), \
-                 mkU32(0x1)));
-
 #define ILLEGAL_INSTRUCTON \
    putPC(mkU32(guest_PC_curr_instr + 4)); \
    dres.jk_StopHere = Ijk_SigILL; \
@@ -349,12 +330,17 @@ static inline UInt getUInt(const UChar * p)
 
 static UInt is_extended(UInt mipsins)
 {
-	// Returns 1 if either extended or JAL/JALX type.
+	// Returns 1 if extended.
 	if ((mipsins >> 27) == 0b11110)
 		return 1;
-	if ((mipsins >> 27) == 0b00011)
-		return 1;
 	return 0;
+}
+
+static UInt is_jal_or_jalx(UInt mipsins){
+   // Returns 1 if JAL/JALX type.
+   if ((mipsins >> 27) == 0b00011)
+      return 1;
+   return 0;
 }
 
 static UInt get_opcode(UInt mipsins)
@@ -370,12 +356,6 @@ static UInt get_rx(UInt mipsins)
 static UInt get_ry(UInt mipsins)
 {
 	return (0x000000E0 & mipsins) >> 5; 
-}
-
-// seems to change by instruction
-static UInt get_rz(UInt mipsins)
-{
-	return (0x0000001C & mipsins) >> 2;
 }
 
 static UInt get_i8_funct(UInt mipsins)
@@ -422,14 +402,17 @@ static Bool branch_or_jump(const UChar * addr)
 {
    UInt cins = getUInt(addr);
 
+   if (is_jal_or_jalx(cins)){ /* JAL, JALX */
+      return True;
+   }
+
    UInt extended = is_extended(cins);
 
 	if (!extended){
-		cins  = cins >> 16;
+		cins = cins >> 16;
 	}
 
    UInt opcode = get_opcode(cins);
-   UInt rx = get_rx(cins);
    UInt ry = get_ry(cins);
 
    if (opcode == 0b00010){ /* B */
@@ -453,11 +436,6 @@ static Bool branch_or_jump(const UChar * addr)
          return True;
       }
    }
-
-   if (opcode == 0b00011) /* JAL, JALX */
-      return True;
-
-   UInt rr_funct = (cins & 0x1F) >> 0;
 
    if (opcode == 0b11101) {
       UInt rr_funct = (cins & 0x1F) >> 0;
@@ -485,14 +463,17 @@ static Bool is_Branch_or_Jump_and_Link(const UChar * addr)
 {
    UInt cins = getUInt(addr);
 
+   if (is_jal_or_jalx(cins)){ /* JAL, JALX */
+      return True;
+   }
+
    UInt extended = is_extended(cins);
 
 	if (!extended){
-		cins  = cins >> 16;
+		cins = cins >> 16;
 	}
 
    UInt opcode = get_opcode(cins);
-   UInt rx = get_rx(cins);
    UInt ry = get_ry(cins);
    UInt rr_funct = (cins & 0x1F) >> 0;
 
@@ -505,9 +486,6 @@ static Bool is_Branch_or_Jump_and_Link(const UChar * addr)
       }
    }
 
-   if (opcode == 0b00011) /* JAL, JALX */
-      return True;
-
 	return False;
 }
 
@@ -515,18 +493,21 @@ static Bool is_Ret(const UChar * addr)
 {
    UInt cins = getUInt(addr);
 
-   UInt extended = is_extended(cins);
+   if (is_jal_or_jalx(cins)){
+      return False;
+   }
 
-	if (!extended){
-		cins  = cins >> 16;
+   UInt extended = is_extended(cins);
+   
+   if (!extended){
+      cins = cins >> 16;
 	}
 
    UInt opcode = get_opcode(cins);
-   UInt rx = get_rx(cins);
    UInt ry = get_ry(cins);
    UInt rr_funct = (cins & 0x1F) >> 0;
 
-   if (opcode = 0b11101) { /* RR */
+   if (opcode == 0b11101) { /* RR */
       if (rr_funct == 0b00000) {
          if (ry == 0b001) /* JR ra */
             return True;
@@ -655,6 +636,11 @@ static UInt extend_s_9to32(UInt x)
    return (UInt) ((((Int) x) << 23) >> 23);
 }
 
+static UInt extend_s_10to32(UInt x)
+{
+   return (UInt) ((((Int) x) << 22) >> 22);
+}
+
 static UInt extend_s_11to32(UInt x)
 {
    return (UInt) ((((Int) x) << 21) >> 21);
@@ -705,24 +691,6 @@ static IRExpr *getAcc(UInt acNo)
    return IRExpr_Get(accumulatorGuestRegOffset(acNo), Ity_I64);
 }
 
-/* Get value from DSPControl register (helper function for MIPS32 DSP ASE
-   instructions). */
-static IRExpr *getDSPControl(void)
-{
-   vassert(!mode64);
-   return IRExpr_Get(offsetof(VexGuestMIPS32State, guest_DSPControl), Ity_I32);
-}
-
-/* Put value to DSPControl register. Expression e is written to DSPControl as
-   is. If only certain bits of DSPControl need to be changed, it should be done
-   before calling putDSPControl(). It could be done by reading DSPControl and
-   ORing it with appropriate mask. */
-static void putDSPControl(IRExpr * e)
-{
-   vassert(!mode64);
-   stmt(IRStmt_Put(offsetof(VexGuestMIPS32State, guest_DSPControl), e));
-}
-
 /* Fetch a byte from the guest insn stream. */
 static UChar getIByte(Int delta)
 {
@@ -732,9 +700,9 @@ static UChar getIByte(Int delta)
 static IRExpr *getIReg(UInt iregNo)
 {
    if (0 == iregNo) {
-      return mode64 ? mkU64(0x0) : mkU32(0x0);
+      return mkU32(0x0);
    } else {
-      IRType ty = mode64 ? Ity_I64 : Ity_I32;
+      IRType ty = Ity_I32;
       vassert(iregNo < 32);
       return IRExpr_Get(integerGuestRegOffset(iregNo), ty);
    }
@@ -750,28 +718,18 @@ static IRExpr *getLO(void)
    return IRExpr_Get(offsetof(VexGuestMIPS32State, guest_LO), Ity_I32);
 }
 
-static IRExpr *getFCSR(void)
-{
-   return IRExpr_Get(offsetof(VexGuestMIPS32State, guest_FCSR), Ity_I32);
-}
-
 /* Get byte from register reg, byte pos from 0 to 3 (or 7 for MIPS64) . */
 static IRExpr *getByteFromReg(UInt reg, UInt byte_pos)
 {
-  UInt pos = byte_pos * 8;
-  if (mode64)
-      return unop(Iop_64to8, binop(Iop_And64,
-                                   binop(Iop_Shr64, getIReg(reg), mkU8(pos)),
-                                   mkU64(0xFF)));
-   else
-      return unop(Iop_32to8, binop(Iop_And32,
-                                   binop(Iop_Shr32, getIReg(reg), mkU8(pos)),
-                                   mkU32(0xFF)));
+   UInt pos = byte_pos * 8;
+   return unop(Iop_32to8, binop(Iop_And32,
+                                 binop(Iop_Shr32, getIReg(reg), mkU8(pos)),
+                                 mkU32(0xFF)));
 }
 
 static void putIReg(UInt archreg, IRExpr * e)
 {
-   IRType ty = mode64 ? Ity_I64 : Ity_I32;
+   IRType ty = Ity_I32;
    vassert(archreg < 32);
    vassert(typeOfIRExpr(irsb->tyenv, e) == ty);
    if (archreg != 0)
@@ -864,7 +822,7 @@ static void dis_branch( Bool link, IRExpr * guard, UInt imm, IRStmt ** set,
    guest_PC_curr_instr, which will have been set before the call
    here. */
 
-static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
+static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                                                                     Addr),
                                      Bool         resteerCisOk,
                                      void*        callback_opaque,
@@ -874,7 +832,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                                      Bool         sigill_diag )
 {
    IRTemp   t0, t1 = 0, t2, t3, t4, t5, t6, t7, t8, t9,
-            t10, t11, t12, t13, t14, t15, t16, t17, t18, t19;
+            t10, t11, t12, t13, t14, t15, t16, t17;
 
    //UInt opcode, cins, rs, rt, rd, sa, ft, fs, fd, fmt, tf, nd, function,
    //     trap_code, imm, instr_index, p, msb, lsb, size, rot, sel;
@@ -883,7 +841,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
 	UInt  cins, op, imm, rx, ry, rz, sa, sel, jal_x, target, 
          shift_f, rri_a_f, i8_funct, svrs_s, r32, rrr_f, rr_funct,
          svrs_ra, svrs_s0, svrs_s1, svrs_framesize, svrs_aregs, svrs_xsregs,
-         svrs_args, svrs_astatic;
+         svrs_args, svrs_astatic, stack_cnt;
 	UInt extended;
    UInt cins_t;
    UInt ISA_Mode;
@@ -900,7 +858,8 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
       consistent error messages for unimplemented insns. */
    Int delta_start = delta;
 
-   /* Length of previous instruction. */
+   /* Length of instructions. */
+   Int dres_len = 0;
    Int prev_dres_len = 0;
 
    /* Are we in a delay slot ? */
@@ -940,8 +899,10 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
       if (delta == 2) {
          prev_dres_len = 2;
       } else {
-         cins_t = getUint(guest_code + delta - 4);
-         if (is_extended(cins)) {
+         cins_t = getUInt(guest_code + delta - 4);
+         if (is_extended(cins_t)) {
+            prev_dres_len = 4;
+         } else if (is_jal_or_jalx(cins_t)) {
             prev_dres_len = 4;
          } else {
             prev_dres_len = 2;
@@ -963,17 +924,27 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
 
 	extended = is_extended(cins);
 
-	if (!extended){
-		cins  = cins >> 16;
-      dres.len = 2;
-	}
-   else {
-      dres.len = 4;
+	if (!extended && !is_jal_or_jalx(cins)) {
+      cins  = cins >> 16;
+      dres_len = 2;
+	} else {
+      dres_len = 4;
    }
 
 	op = get_opcode(cins);
 	rx = get_rx(cins);
 	ry = get_ry(cins);
+
+   if (is_jal_or_jalx(cins)){
+      op = 0b00011;
+      rx = 0;
+      ry = 0;
+   }
+
+   DIP("extended : %d\n", extended);
+   DIP("op : %d\n", op);
+   DIP("rx : %d\n", rx);
+   DIP("ry : %d\n", ry);
 
    switch (op) {
 
@@ -1016,10 +987,10 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
 		case 0b00010: /* B */
 			if (extended) {
 				imm = extend_s_17to32(get_imm_addiu(cins) << 1);
-            dis_branch(False, binop(Iop_CmpEQ32, getIReg(0), getIReg(0)), imm, &bstmt, dres.len);
+            dis_branch(False, binop(Iop_CmpEQ32, getIReg(0), getIReg(0)), imm, &bstmt, dres_len);
 			} else {
 				imm = extend_s_12to32(((0x07FF & cins) >> 0) << 1);
-				dis_branch(False, binop(Iop_CmpEQ32, getIReg(0), getIReg(0)), imm, &bstmt, dres.len);
+				dis_branch(False, binop(Iop_CmpEQ32, getIReg(0), getIReg(0)), imm, &bstmt, dres_len);
 			}
          break;
 
@@ -1032,32 +1003,33 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
             /* May need to consider ISA Mode bit? */
             putIReg(31, mkU32(guest_PC_curr_instr + 6));
             t0 = newTemp(Ity_I32);
-            assign(t0, mkU32( guest_PC_curr_instr & 0xF0000000 | 
+            assign(t0, mkU32( (guest_PC_curr_instr & 0xF0000000) | 
                               (target << 2)));
             lastn = mkexpr(t0);
          } else { /* JALX */
             /* Didn't think there would be any JALXs but turns out to be so.
                May need to handle ISA Mode,, */
+            goto decode_failure;
          }
          break;
 
 		case 0b00100: /* BEQZ */
          if (extended) {
 				imm = extend_s_17to32(get_imm_addiu(cins) << 1);
-            dis_branch(False, binop(Iop_CmpEQ32, getIReg(xlat(rx)), getIReg(0)), imm, &bstmt, dres.len);
+            dis_branch(False, binop(Iop_CmpEQ32, getIReg(xlat(rx)), getIReg(0)), imm, &bstmt, dres_len);
 			} else {
 				imm = extend_s_9to32(((0xFF & cins) >> 0) << 1);
-				dis_branch(False, binop(Iop_CmpEQ32, getIReg(xlat(rx)), getIReg(0)), imm, &bstmt, dres.len);
+				dis_branch(False, binop(Iop_CmpEQ32, getIReg(xlat(rx)), getIReg(0)), imm, &bstmt, dres_len);
 			}
          break;
 
 		case 0b00101: /* BNEZ */
          if (extended) {
 				imm = extend_s_17to32(get_imm_addiu(cins) << 1);
-            dis_branch(False, binop(Iop_CmpNE32, getIReg(xlat(rx)), getIReg(0)), imm, &bstmt, dres.len);
+            dis_branch(False, binop(Iop_CmpNE32, getIReg(xlat(rx)), getIReg(0)), imm, &bstmt, dres_len);
 			} else {
 				imm = extend_s_9to32(((0xFF & cins) >> 0) << 1);
-				dis_branch(False, binop(Iop_CmpNE32, getIReg(xlat(rx)), getIReg(0)), imm, &bstmt, dres.len);
+				dis_branch(False, binop(Iop_CmpNE32, getIReg(xlat(rx)), getIReg(0)), imm, &bstmt, dres_len);
 			}
          break;
 
@@ -1160,7 +1132,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                            ((cins & 0xFF) >> 0) << 1
                            );
                }
-               dis_branch(False, binop(Iop_CmpEQ32, getIReg(REG_T8), getIReg(0)), imm, &bstmt, dres.len);
+               dis_branch(False, binop(Iop_CmpEQ32, getIReg(REG_T8), getIReg(0)), imm, &bstmt, dres_len);
                break;
 
             case 0b001: /* BTNEZ */
@@ -1173,15 +1145,15 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                            ((cins & 0xFF) >> 0) << 1
                            );
                }
-               dis_branch(False, binop(Iop_CmpNE32, getIReg(REG_T8), getIReg(0)), imm, &bstmt, dres.len);
+               dis_branch(False, binop(Iop_CmpNE32, getIReg(REG_T8), getIReg(0)), imm, &bstmt, dres_len);
                break;
 
             case 0b010: /* SWRASP */
                /* SW ra, offset(sp) */
                if (extended) {
-                  get_imm_addiu(cins) << 2;
+                  imm = get_imm_addiu(cins) << 2;
                } else {
-                  ((cins & 0xFF) >> 0) << 2;
+                  imm = ((cins & 0xFF) >> 0) << 2;
                }
                t1 = newTemp(Ity_I32);
                assign(t1, binop(Iop_Add32, getIReg(REG_SP), mkU32(imm)));
@@ -1239,7 +1211,9 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                         break;
                      case 0b1110:
                         svrs_args = 4;
+                        break;
                      default:
+                        DIP("svrs_args failure : %d\n", svrs_aregs);
                         goto decode_failure;
                   }
 
@@ -1268,16 +1242,17 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                         break;
                      case 0b1011:
                         svrs_astatic = 4;
+                        break;
                      default:
+                       DIP("svrs_astatic failure : %d\n", svrs_aregs);
                         goto decode_failure;
                   }
-
                } else {
                   svrs_framesize = (cins & 0xF) >> 0;
                }
                switch (svrs_s) {
                   case 0: /* RESTORE */
-                     UInt stack_cnt = 0;
+                     stack_cnt = 0;
                      // Adjust stack with framesize.
                      t0 = newTemp(Ity_I32);
                      if (extended) {
@@ -1372,7 +1347,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                            stack_cnt += 1;
                            t11 = newTemp(Ity_I32);
                            assign(t11, binop(Iop_Sub32, mkexpr(t0), mkU32(stack_cnt*4)));
-                           putIReg(7, load(Ity_I32, mkexpr(t14)));
+                           putIReg(7, load(Ity_I32, mkexpr(t11)));
                            if (svrs_astatic > 1) {
                               // Restore GPR[6]
                               stack_cnt += 1;
@@ -1399,7 +1374,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                      break;
                   
                   case 1: /* SAVE */
-                     UInt stack_cnt = 0;
+                     stack_cnt = 0;
                      // Save GPR[29] in temp
                      t0 = newTemp(Ity_I32);
                      assign(t0, getIReg(REG_SP));
@@ -1578,7 +1553,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
          } else {
             imm = (cins & 0xFF) >> 0;
          }
-         putIReg(xlat(rx), imm);
+         putIReg(xlat(rx), mkU32(imm));
          break;
 
 		case 0b01110: /* CMPI */
@@ -1587,7 +1562,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
          } else {
             imm = (cins & 0xFF) >> 0;
          }
-         putIReg(REG_T8, binop(Iop_Xor32, getIReg(xlat(rx)), imm));
+         putIReg(REG_T8, binop(Iop_Xor32, getIReg(xlat(rx)), mkU32(imm)));
          break;
 
 		case 0b01111: /* Reserved */
@@ -1830,7 +1805,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                break;
             
             case 0b00101: /* BREAK */
-               jmp_lit32(&dres, Ijk_SigTRAP, (guest_PC_curr_instr + dres.len));
+               jmp_lit32(&dres, Ijk_SigTRAP, (guest_PC_curr_instr + dres_len));
                vassert(dres.whatNext == Dis_StopHere);
                break;
             
@@ -1881,6 +1856,32 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                break;
             
             case 0b10001: /* CNVT */
+               switch (ry) {
+                  case 0b000: /* ZEB */
+                     putIReg(xlat(rx), binop(Iop_And32, getIReg(xlat(rx)), mkU32(0xFF)));
+                     break;
+                  
+                  case 0b001: /* ZEH */
+                     putIReg(xlat(rx), binop(Iop_And32, getIReg(xlat(rx)), mkU32(0xFFFF)));
+                     break;
+                  
+                  case 0b010:
+                  case 0b011:
+                     goto decode_failure;
+
+                  case 0b100: /* SEB */
+                     putIReg(xlat(rx), unop(Iop_8Sto32, unop(Iop_32to8, getIReg(xlat(rx)))));
+                     break;
+                  
+                  case 0b101: /* SEH */
+                     putIReg(xlat(rx), unop(Iop_16Sto32, unop(Iop_32to16, getIReg(xlat(rx)))));
+                     break;
+                  
+                  case 0b110:
+                  case 0b111:
+                  default:
+                     goto decode_failure;
+               }
                /* Not used in fimware nor the MIPS32 lifter. */
                goto decode_failure;
             
@@ -1897,8 +1898,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
 
             case 0b11000: /* MULT */
                t1 = newTemp(Ity_I64);
-               assign(t1, binop(Iop_MullS32, mkNarrowTo32(Ity_I32, getIReg(rs)),
-                                mkNarrowTo32(Ity_I32, getIReg(rt))));
+               assign(t1, binop(Iop_MullS32, getIReg(xlat(rx)), getIReg(xlat(ry))));
                e = mkexpr(t1);
                putLO(unop(Iop_64to32, e));
                putHI(unop(Iop_64HIto32, e));
@@ -1906,8 +1906,7 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
             
             case 0b11001: /* MULTU */
                t1 = newTemp(Ity_I64);
-               assign(t1, binop(Iop_MullU32, mkNarrowTo32(Ity_I32, getIReg(rs)),
-                                mkNarrowTo32(Ity_I32, getIReg(rt))));
+               assign(t1, binop(Iop_MullU32, getIReg(xlat(rx)), getIReg(xlat(ry))));
                e = mkexpr(t1);
                putLO(unop(Iop_64to32, e));
                putHI(unop(Iop_64HIto32, e));
@@ -1955,6 +1954,12 @@ static DisResult disInstr_MIPS_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
 			goto decode_failure;
 
 decode_failure:
+
+         DIP("vex mips->IR: unhandled instruction bytes: 0x%x 0x%x 0x%x 0x%x\n",
+							(UInt) getIByte(delta_start + 0),
+							(UInt) getIByte(delta_start + 1),
+							(UInt) getIByte(delta_start + 2),
+							(UInt) getIByte(delta_start + 3));
 			/* All decode failures end up here. */
 			if (sigill_diag)
 				vex_printf("vex mips->IR: unhandled instruction bytes: "
@@ -1983,10 +1988,7 @@ decode_failure:
       delay_slot_branch = False;
       stmt(bstmt);
       bstmt = NULL;
-      if (mode64)
-         putPC(mkU64(guest_PC_curr_instr + dres.len));
-      else
-         putPC(mkU32(guest_PC_curr_instr + dres.len));
+      putPC(mkU32(guest_PC_curr_instr + dres_len));
       is_branch = is_Branch_or_Jump_and_Link(guest_code + delta - prev_dres_len);
       if(is_branch) {
           dres.jk_StopHere = Ijk_Call;
@@ -2027,10 +2029,7 @@ decode_success:
    /* All decode successes end up here. */
    switch (dres.whatNext) {
       case Dis_Continue:
-         if (mode64)
-            putPC(mkU64(guest_PC_curr_instr + dres.len));
-         else
-            putPC(mkU32(guest_PC_curr_instr + dres.len));
+         putPC(mkU32(guest_PC_curr_instr + dres_len));
          break;
       case Dis_ResteerU:
       case Dis_ResteerC:
@@ -2061,6 +2060,8 @@ decode_success:
          putPC(mkU32(guest_PC_curr_instr + dres.len));
       }
    }*/
+   
+   dres.len = dres_len;
 
    DIP("\n");
 
@@ -2074,7 +2075,7 @@ decode_success:
 
 /* Disassemble a single instruction into IR.  The instruction
    is located in host memory at &guest_code[delta]. */
-DisResult disInstr_MIPS( IRSB*        irsb_IN,
+DisResult disInstr_MIPS16e2( IRSB*        irsb_IN,
                          Bool         (*resteerOkFn) ( void *, Addr ),
                          Bool         resteerCisOk,
                          void*        callback_opaque,
@@ -2097,7 +2098,7 @@ DisResult disInstr_MIPS( IRSB*        irsb_IN,
    guest_endness = archinfo->endness == VexEndnessLE ? Iend_LE : Iend_BE;
    guest_PC_curr_instr = (Addr64)guest_IP;
 
-   dres = disInstr_MIPS_WRK(resteerOkFn, resteerCisOk, callback_opaque,
+   dres = disInstr_MIPS16e2_WRK(resteerOkFn, resteerCisOk, callback_opaque,
                             delta, archinfo, abiinfo, sigill_diag_IN);
 
    return dres;

@@ -61,8 +61,8 @@ typedef
       VexArchS390X,
       VexArchMIPS32,
       VexArchMIPS64,
-      VexArchMIPS16e2,
-      VexArchTILEGX
+      VexArchTILEGX,
+      VexArchMIPS16e2
    }
    VexArch;
 
