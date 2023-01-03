@@ -1882,9 +1882,8 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                   default:
                      goto decode_failure;
                }
-               /* Not used in fimware nor the MIPS32 lifter. */
-               goto decode_failure;
-            
+               break;
+               
             case 0b10010: /* MFLO */
                putIReg(xlat(rx), getLO());
                break;
