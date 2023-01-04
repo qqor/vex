@@ -1007,7 +1007,7 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                               (target << 2)));
             lastn = mkexpr(t0);
          } else { /* JALX */
-            /* Didn't think there would be any JALXs but turns out to be so.
+            /* Didn't think there would be any JALXs but turns out to do so.
                May need to handle ISA Mode,, */
             goto decode_failure;
          }
@@ -1047,13 +1047,83 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
          rt = xlat(ry);
 
          switch (shift_f) {
-            case 0b00: /* SLL */
-               SXX_PATTERN(Iop_Shl32);
+            case 0b00: /* SLL */ /* 16e2 EHB EXT INS PAUSE RDHWR SYNC */
+               if (extended) {
+                  sel = (cins & 0x1C) >> 2;
+                  switch (sel) {
+                     case 0b000: /* SLL */
+                        SXX_PATTERN(Iop_Shl32);
+                        break;
+                     
+                     case 0b001: /* INS */
+                        
+                        //break;
+                     
+                     case 0b010: /* EXT */
+                        
+                        //break;
+                     
+                     case 0b011: /* RDHWR */
+                        
+                        //break;
+                     
+                     case 0b100: /* EHB */
+                        
+                        //break;
+                     
+                     case 0b101: /* SYNC */
+                        
+                        //break;
+                     
+                     case 0b110: /* PAUSE */
+                        
+                        //break;
+                     
+                     case 0b111:
+                     default:
+                        goto decode_failure;
+                  }
+               } else {
+                  SXX_PATTERN(Iop_Shl32);
+               }
                break;
             case 0b01:
                goto decode_failure;
-            case 0b10: /* SRL */
-               SXX_PATTERN(Iop_Shr32);
+            case 0b10: /* SRL */ /* 16e2 MOVZ MOVN MOVTN MOVTZ */
+               if (extended) {
+                  sel = (cins & 0x1C) >> 2;
+                  switch (sel) {
+                     case 0b000: /* SRL */
+                        SXX_PATTERN(Iop_Shl32);
+                        break;
+                     
+                     case 0b001: /* MOVZ */
+                        
+                        //break;
+                     
+                     case 0b010: /* MOVN */
+                        
+                        //break;
+                     
+                     case 0b011:
+                     case 0b100:
+                        goto decode_failure;
+                     
+                     case 0b101: /* MOVTZ */
+                        
+                        //break;
+                     
+                     case 0b110: /* MOVTN */
+                        
+                        //break;
+                     
+                     case 0b111:
+                     default:
+                        goto decode_failure;
+                  }
+               } else {
+                  SXX_PATTERN(Iop_Shr32);
+               }
                break;
             case 0b11: /* SRA */
                SXX_PATTERN(Iop_Sar32);
@@ -1537,9 +1607,14 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
             case 0b110: /* Reserved */
                goto decode_failure;
 
-            case 0b111: /* MOVR32 */
-               r32 = (cins & 0x1F) >> 0;
-               putIReg(xlat(ry), getIReg(r32));
+            case 0b111: /* MOVR32 */ /* 16e2 DI DMT DVPE EI EMT EVPE MFC0 MTC0 */
+               if (extended) {
+                  DIP("MOVR32 16e2\n");
+                  goto decode_failure;
+               } else {
+                  r32 = (cins & 0x1F) >> 0;
+                  putIReg(xlat(ry), getIReg(r32));
+               }
                break;
             
             default:
@@ -1547,13 +1622,41 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
          }         
          break;
 
-		case 0b01101: /* LI */
+		case 0b01101: /* LI */ /* 16e2 ANDI LUI ORI XORI */
          if (extended) {
             imm = get_imm_addiu(cins);
+            sel = (cins & 0xE0) >> 5;
+            switch (sel) {
+               case 0b000: /* LI */
+                  putIReg(xlat(rx), mkU32(imm));
+                  break;
+               
+               case 0b001: /* LUI */
+                  
+                  //break;
+               
+               case 0b010: /* ORI */
+                  
+                  //break;
+               
+               case 0b011: /* ANDI */
+                  
+                  //break;
+               
+               case 0b100: /* XORI */
+                  
+                  //break;
+               
+               case 0b101:
+               case 0b110:
+               case 0b111:
+               default:
+                  goto decode_failure;
+            }
          } else {
             imm = (cins & 0xFF) >> 0;
+            putIReg(xlat(rx), mkU32(imm));
          }
-         putIReg(xlat(rx), mkU32(imm));
          break;
 
 		case 0b01110: /* CMPI */
@@ -1590,15 +1693,54 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
          putIReg(xlat(ry), unop(Iop_16Sto32, load(Ity_I16, mkexpr(t1))));
          break;
 
-      case 0b10010: /* LWSP */
+      case 0b10010: /* LWSP */ /* 16e2 LB LBU LH LHU LL LW LWL LWR*/
          if (extended) {
             imm = extend_s_16to32(get_imm_addiu(cins));
+            sel = (cins & 0xE0) >> 5;
+            switch (sel) {
+               case 0b000: /* LW SP-Relative */
+                  t1 = newTemp(Ity_I32);
+                  assign(t1, binop(Iop_Add32, getIReg(REG_SP), mkU32(imm)));
+                  putIReg(xlat(rx), load(Ity_I32, mkexpr(t1)));
+                  break;
+               
+               case 0b001: /* LW GP-Relative */
+
+                  //break;
+
+               case 0b010: /* LH */
+
+                  //break;
+
+               case 0b011: /* LB */
+
+                  //break;
+
+               case 0b100: /* LHU */
+
+                  //break;
+
+               case 0b101: /* LBU */
+
+                  //break;
+
+               case 0b110: /* LL */
+                  /* imm value is different */
+                  //break;
+
+               case 0b111: /* LWL & LWR */
+                  /* imm value is different */
+                  //break;
+
+               default:
+                  break;
+            }
          } else {
             imm = ((cins & 0xFF) >> 0) << 2;
+            t1 = newTemp(Ity_I32);
+            assign(t1, binop(Iop_Add32, getIReg(REG_SP), mkU32(imm)));
+            putIReg(xlat(rx), load(Ity_I32, mkexpr(t1)));
          }
-         t1 = newTemp(Ity_I32);
-         assign(t1, binop(Iop_Add32, getIReg(REG_SP), mkU32(imm)));
-         putIReg(xlat(rx), load(Ity_I32, mkexpr(t1)));
          break;
 
       case 0b10011: /* LW */
@@ -1669,15 +1811,54 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
          store(mkexpr(t1), narrowTo(Ity_I16, getIReg(xlat(ry))));
          break;
 
-      case 0b11010: /* SWSP */
+      case 0b11010: /* SWSP */ /* 16e2 CACHE PREF SB SC SH SW SWL SWR */
          if (extended) {
             imm = extend_s_16to32(get_imm_addiu(cins));
+            sel = (cins & 0xE0) >> 5;
+            switch (sel) {
+               case 0b000: /* SW SP-Relative */
+                  t1 = newTemp(Ity_I32);
+                  assign(t1, binop(Iop_Add32, getIReg(REG_SP), mkU32(imm)));
+                  store(mkexpr(t1), getIReg(xlat(rx)));
+                  break;
+               
+               case 0b001: /* SW GP-Relative */
+
+                  //break;
+
+               case 0b010: /* SH */
+
+                  //break;
+
+               case 0b011: /* SB */
+
+                  //break;
+
+               case 0b100: /* PREF */
+                  /* imm value is different */
+                  //break;
+
+               case 0b101: /* CACHE */
+                  /* imm value is different */
+                  //break;
+
+               case 0b110: /* SC */
+                  /* imm value is different */
+                  //break;
+
+               case 0b111: /* SWL & SWR */
+                  /* imm value is different */
+                  //break;
+
+               default:
+                  break;
+            }
          } else {
             imm = ((cins & 0xFF) >> 0) << 2;
+            t1 = newTemp(Ity_I32);
+            assign(t1, binop(Iop_Add32, getIReg(REG_SP), mkU32(imm)));
+            store(mkexpr(t1), getIReg(xlat(rx)));
          }
-         t1 = newTemp(Ity_I32);
-         assign(t1, binop(Iop_Add32, getIReg(REG_SP), mkU32(imm)));
-         store(mkexpr(t1), getIReg(xlat(rx)));
          break;
 
       case 0b11011: /* SW */
@@ -1883,7 +2064,7 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                      goto decode_failure;
                }
                break;
-               
+
             case 0b10010: /* MFLO */
                putIReg(xlat(rx), getLO());
                break;
