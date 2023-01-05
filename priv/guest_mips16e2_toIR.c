@@ -1632,20 +1632,20 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                   break;
                
                case 0b001: /* LUI */
-                  
-                  //break;
+                  putIReg(xlat(rx), mkU32(imm << 16));
+                  break;
                
                case 0b010: /* ORI */
-                  
-                  //break;
+                  putIReg(xlat(rx), binop(Iop_Or32, getIReg(xlat(rx)), mkU32(imm)));
+                  break;
                
                case 0b011: /* ANDI */
-                  
-                  //break;
+                  putIReg(xlat(rx), binop(Iop_And32, getIReg(xlat(rx)), mkU32(imm)));
+                  break;
                
                case 0b100: /* XORI */
-                  
-                  //break;
+                  putIReg(xlat(rx), binop(Iop_Xor32, getIReg(xlat(rx)), mkU32(imm)));
+                  break;
                
                case 0b101:
                case 0b110:
