@@ -841,7 +841,7 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
 	UInt  cins, op, imm, rx, ry, rz, sa, sel, jal_x, target, 
          shift_f, rri_a_f, i8_funct, svrs_s, r32, rrr_f, rr_funct,
          svrs_ra, svrs_s0, svrs_s1, svrs_framesize, svrs_aregs, svrs_xsregs,
-         svrs_args, svrs_astatic, stack_cnt;
+         svrs_args, svrs_astatic, stack_cnt, mfc0_sel;
 	UInt extended;
    UInt cins_t;
    UInt ISA_Mode;
@@ -999,17 +999,19 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
          jal_x = (0x04000000 & cins) >> 26;
          target = get_target_jal(cins);
          if (jal_x == 0) { /* JAL */
-            /* Not really sure why 6. Did so as in document. */
-            /* May need to consider ISA Mode bit? */
             putIReg(31, mkU32(guest_PC_curr_instr + 6));
             t0 = newTemp(Ity_I32);
             assign(t0, mkU32( (guest_PC_curr_instr & 0xF0000000) | 
                               (target << 2)));
             lastn = mkexpr(t0);
          } else { /* JALX */
-            /* Didn't think there would be any JALXs but turns out to do so.
-               May need to handle ISA Mode,, */
-            goto decode_failure;
+            /* May need to handle ISA Mode. 
+               Not implemented for now as all the targets are going to be hooked. */
+            putIReg(31, mkU32(guest_PC_curr_instr + 6));
+            t0 = newTemp(Ity_I32);
+            assign(t0, mkU32( (guest_PC_curr_instr & 0xF0000000) | 
+                              (target << 2)));
+            lastn = mkexpr(t0);
          }
          break;
 
@@ -1609,8 +1611,38 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
 
             case 0b111: /* MOVR32 */ /* 16e2 DI DMT DVPE EI EMT EVPE MFC0 MTC0 */
                if (extended) {
-                  DIP("MOVR32 16e2\n");
-                  goto decode_failure;
+                  sel = (cins & 0x1F0000) >> 16;
+                  switch (sel) {
+                     case 0b00000: /* 16e2 MFC0 */
+                        r32 = (cins & 0x1F) >> 0;
+                        mfc0_sel = (cins & 0xE00000) >> 21;
+                        // Just return 0 for now. Assume CP0 not implemented.
+                        putIReg(xlat(ry), mkU32(0));
+                        break;
+
+                     case 0b00001: /* 16e2 MTC0 */
+
+                        //break;
+
+                     case 0b00010: /* CLRBIT */
+
+                        //break;
+
+                     case 0b00110: /* CLRBIT_NORES */
+
+                        //break;
+
+                     case 0b00011: /* SETBIT */
+
+                        //break;
+
+                     case 0b00111: /* SETBIT_NORES */
+
+                        //break;
+
+                     default:
+                        goto decode_failure;
+                  }
                } else {
                   r32 = (cins & 0x1F) >> 0;
                   putIReg(xlat(ry), getIReg(r32));
@@ -1622,7 +1654,7 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
          }         
          break;
 
-		case 0b01101: /* LI */ /* 16e2 ANDI LUI ORI XORI */
+		case 0b01101: /* LI */
          if (extended) {
             imm = get_imm_addiu(cins);
             sel = (cins & 0xE0) >> 5;
@@ -1631,19 +1663,19 @@ static DisResult disInstr_MIPS16e2_WRK ( Bool(*resteerOkFn) (/*opaque */void *,
                   putIReg(xlat(rx), mkU32(imm));
                   break;
                
-               case 0b001: /* LUI */
+               case 0b001: /* 16e2 LUI */
                   putIReg(xlat(rx), mkU32(imm << 16));
                   break;
                
-               case 0b010: /* ORI */
+               case 0b010: /* 16e2 ORI */
                   putIReg(xlat(rx), binop(Iop_Or32, getIReg(xlat(rx)), mkU32(imm)));
                   break;
                
-               case 0b011: /* ANDI */
+               case 0b011: /* 16e2 ANDI */
                   putIReg(xlat(rx), binop(Iop_And32, getIReg(xlat(rx)), mkU32(imm)));
                   break;
                
-               case 0b100: /* XORI */
+               case 0b100: /* 16e2 XORI */
                   putIReg(xlat(rx), binop(Iop_Xor32, getIReg(xlat(rx)), mkU32(imm)));
                   break;
                
