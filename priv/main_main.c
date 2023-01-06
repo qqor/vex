@@ -166,7 +166,6 @@
 #define TILEGXST(f) vassert(0)
 #endif
 
-
 /* This file contains the top level interface to the library. */
 
 /* --------- fwds ... --------- */
@@ -569,6 +568,24 @@ IRSB *LibVEX_Lift (  VexTranslateArgs *vta,
          vassert(sizeof( ((VexGuestTILEGXState*)0)->guest_CMSTART    ) == 8);
          vassert(sizeof( ((VexGuestTILEGXState*)0)->guest_CMLEN      ) == 8);
          vassert(sizeof( ((VexGuestTILEGXState*)0)->guest_NRADDR     ) == 8);
+         break;
+
+      case VexArchMIPS16e2:
+         preciseMemExnsFn       
+            = guest_mips32_state_requires_precise_mem_exns;
+         disInstrFn              = disInstr_MIPS16e2;
+         specHelper              = guest_mips32_spechelper;
+         guest_layout            = &mips32Guest_layout;
+         offB_CMSTART            = offsetof(VexGuestMIPS32State,guest_CMSTART);
+         offB_CMLEN              = offsetof(VexGuestMIPS32State,guest_CMLEN);
+         offB_GUEST_IP           = offsetof(VexGuestMIPS32State,guest_PC);
+         szB_GUEST_IP            = sizeof( ((VexGuestMIPS32State*)0)->guest_PC );
+         vassert(vta->archinfo_guest.endness == VexEndnessLE
+                 || vta->archinfo_guest.endness == VexEndnessBE);
+         vassert(0 == sizeof(VexGuestMIPS32State) % LibVEX_GUEST_STATE_ALIGN);
+         vassert(sizeof( ((VexGuestMIPS32State*)0)->guest_CMSTART) == 4);
+         vassert(sizeof( ((VexGuestMIPS32State*)0)->guest_CMLEN  ) == 4);
+         vassert(sizeof( ((VexGuestMIPS32State*)0)->guest_NRADDR ) == 4);
          break;
 
       default:
@@ -1585,6 +1602,7 @@ static IRType arch_word_size (VexArch arch) {
       case VexArchARM:
       case VexArchMIPS32:
       case VexArchPPC32:
+      case VexArchMIPS16e2:
          return Ity_I32;
 
       case VexArchAMD64:
@@ -1908,6 +1926,7 @@ static const HChar* show_hwcaps ( VexArch arch, UInt hwcaps )
       case VexArchARM:    return show_hwcaps_arm(hwcaps);
       case VexArchARM64:  return show_hwcaps_arm64(hwcaps);
       case VexArchS390X:  return show_hwcaps_s390x(hwcaps);
+      case VexArchMIPS16e2:
       case VexArchMIPS32: return show_hwcaps_mips32(hwcaps);
       case VexArchMIPS64: return show_hwcaps_mips64(hwcaps);
       case VexArchTILEGX: return show_hwcaps_tilegx(hwcaps);
@@ -2114,6 +2133,7 @@ static void check_hwcaps ( VexArch arch, UInt hwcaps )
 #endif
          return;
 
+      case VexArchMIPS16e2:
       case VexArchMIPS32:
          switch (VEX_MIPS_COMP_ID(hwcaps)) {
             case VEX_PRID_COMP_MIPS:

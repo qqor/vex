@@ -55,6 +55,21 @@ extern DisResult disInstr_MIPS ( IRSB*        irbb,
                                  VexEndness   host_endness,
                                  Bool         sigill_diag );
 
+/* Convert one MIPS16e2 insn to IR. See the type DisOneInstrFn in 
+   guest_generic_bb_to_IR.h. */
+extern DisResult disInstr_MIPS16e2 (   IRSB*        irbb,
+                                       Bool         (*resteerOkFn) (void *, Addr),
+                                       Bool         resteerCisOk,
+                                       void*        callback_opaque,
+                                       const UChar* guest_code,
+                                       Long         delta,
+                                       Addr         guest_IP,
+                                       VexArch      guest_arch,
+                                       const VexArchInfo* archinfo,
+                                       const VexAbiInfo*  abiinfo,
+                                       VexEndness   host_endness,
+                                       Bool         sigill_diag );
+
 /* Used by the optimiser to specialise calls to helpers. */
 extern IRExpr *guest_mips32_spechelper ( const HChar * function_name,
                                          IRExpr ** args,

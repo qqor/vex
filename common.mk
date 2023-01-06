@@ -94,7 +94,8 @@ NORMAL_OBJS = \
 	priv/guest_arm64_toIR.o		\
 	priv/guest_ppc_toIR.o		\
 	priv/guest_s390_toIR.o		\
-	priv/guest_mips_toIR.o
+	priv/guest_mips_toIR.o		\
+	priv/guest_mips16e2_toIR.o
 
 SINGLEARCH_OBJS = priv/main_main.o
 MULTIARCH_OBJS = priv/multiarch_main_main.o
